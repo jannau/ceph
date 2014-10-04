@@ -675,7 +675,7 @@ private:
 		   struct flock *fl, uint64_t owner);
   void _encode_filelocks(Inode *in, bufferlist& bl);
   void _release_filelocks(Fh *fh);
-  void _convert_flock(struct flock *fl, uint64_t owner, ceph_filelock *filelock);
+  void _update_lock_state(struct flock *fl, uint64_t owner, ceph_lock_state_t *lock_state);
 public:
   int mount(const std::string &mount_root);
   void unmount();

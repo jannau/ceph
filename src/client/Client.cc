@@ -7111,15 +7111,7 @@ int Client::_do_filelock(Inode *in, int lock_type, int op, int sleep,
       } else
 	assert(0);
 
-      ceph_filelock filelock;
-      _convert_flock(fl, owner, &filelock);
-      if (filelock.type == CEPH_LOCK_UNLOCK) {
-	list<ceph_filelock> activated_locks;
-	lock_state->remove_lock(filelock, activated_locks);
-      } else {
-	bool r = lock_state->add_lock(filelock, false, false);
-	assert(r);
-      }
+      _update_lock_state(fl, owner, lock_state);
     } else
       assert(0);
   }
@@ -7200,7 +7192,8 @@ void Client::_release_filelocks(Fh *fh)
   }
 }
 
-void Client::_convert_flock(struct flock *fl, uint64_t owner, struct ceph_filelock *filelock)
+void Client::_update_lock_state(struct flock *fl, uint64_t owner,
+				ceph_lock_state_t *lock_state)
 {
   int lock_cmd;
   if (F_RDLCK == fl->l_type)
@@ -7210,13 +7203,22 @@ void Client::_convert_flock(struct flock *fl, uint64_t owner, struct ceph_filelo
   else
     lock_cmd = CEPH_LOCK_UNLOCK;;
 
-  filelock->start = fl->l_start;
-  filelock->length = fl->l_len;
-  filelock->client = 0;
+  ceph_filelock filelock;
+  filelock.start = fl->l_start;
+  filelock.length = fl->l_len;
+  filelock.client = 0;
   // see comment in _do_filelock()
-  filelock->owner = owner | (1ULL << 63);
-  filelock->pid = fl->l_pid;
-  filelock->type = lock_cmd;
+  filelock.owner = owner | (1ULL << 63);
+  filelock.pid = fl->l_pid;
+  filelock.type = lock_cmd;
+
+  if (filelock.type == CEPH_LOCK_UNLOCK) {
+    list<ceph_filelock> activated_locks;
+    lock_state->remove_lock(filelock, activated_locks);
+  } else {
+    bool r = lock_state->add_lock(filelock, false, false);
+    assert(r);
+  }
 }
 
 int Client::_getlk(Fh *fh, struct flock *fl, uint64_t owner)
@@ -7235,17 +7237,7 @@ int Client::_setlk(Fh *fh, struct flock *fl, uint64_t owner, int sleep)
   if (ret == 0) {
     if (!fh->fcntl_locks)
       fh->fcntl_locks = new ceph_lock_state_t(cct);
-
-    ceph_filelock filelock;
-    _convert_flock(fl, owner, &filelock);
-
-    if (filelock.type == CEPH_LOCK_UNLOCK) {
-      list<ceph_filelock> activated_locks;
-      fh->fcntl_locks->remove_lock(filelock, activated_locks);
-    } else {
-      bool r = fh->fcntl_locks->add_lock(filelock, false, false);
-      assert(r);
-    }
+    _update_lock_state(fl, owner, fh->fcntl_locks);
   }
   ldout(cct, 10) << "_setlk " << fh << " ino " << in->ino << " result=" << ret << dendl;
   return ret;
@@ -7283,17 +7275,7 @@ int Client::_flock(Fh *fh, int cmd, uint64_t owner)
   if (ret == 0) {
     if (!fh->flock_locks)
       fh->flock_locks = new ceph_lock_state_t(cct);
-
-    ceph_filelock filelock;
-    _convert_flock(&fl, owner, &filelock);
-
-    if (filelock.type == CEPH_LOCK_UNLOCK) {
-      list<ceph_filelock> activated_locks;
-      fh->flock_locks->remove_lock(filelock, activated_locks);
-    } else {
-      bool r = fh->flock_locks->add_lock(filelock, false, false);
-      assert(r);
-    }
+    _update_lock_state(&fl, owner, fh->flock_locks);
   }
   ldout(cct, 10) << "_flock " << fh << " ino " << in->ino << " result=" << ret << dendl;
   return ret;
