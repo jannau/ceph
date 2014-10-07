@@ -1731,6 +1731,8 @@ private:
   friend class C_CancelOp;
 public:
   int op_cancel(ceph_tid_t tid, int r);
+  int op_cancel_nolock(ceph_tid_t tid, int r);
+  void op_cancel_all(int r);
 
   // commands
   int osd_command(int osd, vector<string>& cmd,

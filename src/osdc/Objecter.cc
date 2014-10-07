@@ -1852,7 +1852,7 @@ int Objecter::op_cancel(OSDSession *s, ceph_tid_t tid, int r)
 
   map<ceph_tid_t, Op*>::iterator p = s->ops.find(tid);
   if (p == s->ops.end()) {
-    ldout(cct, 10) << __func__ << " tid " << tid << " dne" << dendl;
+    ldout(cct, 10) << __func__ << " tid " << tid << " dne in session " << s->osd << dendl;
     return -ENOENT;
   }
 
@@ -1862,7 +1862,7 @@ int Objecter::op_cancel(OSDSession *s, ceph_tid_t tid, int r)
     s->con->revoke_rx_buffer(tid);
   }
 
-  ldout(cct, 10) << __func__ << " tid " << tid << dendl;
+  ldout(cct, 10) << __func__ << " tid " << tid << " in session " << s->osd << dendl;
   Op *op = p->second;
   if (op->onack) {
     op->onack->complete(r);
@@ -1882,6 +1882,8 @@ int Objecter::op_cancel(OSDSession *s, ceph_tid_t tid, int r)
 int Objecter::op_cancel(ceph_tid_t tid, int r)
 {
   int ret = 0;
+
+  ldout(cct, 5) << __func__ << ": cancelling tid " << tid << " r=" << r << dendl;
 
   rwlock.get_write();
 
@@ -1903,6 +1905,8 @@ start:
     s->lock.unlock();
   }
 
+  ldout(cct, 5) << __func__ << ": tid " << tid << " not found in live sessions" << dendl;
+
   // Handle case where the op is in homeless session
   homeless_session->lock.get_read();
   if (homeless_session->ops.find(tid) != homeless_session->ops.end()) {
@@ -1919,9 +1923,87 @@ start:
     homeless_session->lock.unlock();
   }
 
+  ldout(cct, 5) << __func__ << ": tid " << tid << " not found in homeless session" << dendl;
+
   rwlock.unlock();
 
   return ret;
+}
+
+// FIXME clean up vs other op_cancels
+int Objecter::op_cancel_nolock(ceph_tid_t tid, int r)
+{
+  int ret = 0;
+
+  ldout(cct, 5) << __func__ << ": cancelling tid " << tid << " r=" << r << dendl;
+
+start:
+
+  for (map<int, OSDSession *>::iterator siter = osd_sessions.begin(); siter != osd_sessions.end(); ++siter) {
+    OSDSession *s = siter->second;
+    s->lock.get_read();
+    if (s->ops.find(tid) != s->ops.end()) {
+      s->lock.unlock();
+      ret = op_cancel(s, tid, r);
+      if (ret == -ENOENT) {
+        /* oh no! raced, maybe tid moved to another session, restarting */
+        goto start;
+      }
+      return ret;
+    }
+    s->lock.unlock();
+  }
+
+  ldout(cct, 5) << __func__ << ": tid " << tid << " not found in live sessions" << dendl;
+
+  // Handle case where the op is in homeless session
+  homeless_session->lock.get_read();
+  if (homeless_session->ops.find(tid) != homeless_session->ops.end()) {
+    homeless_session->lock.unlock();
+    ret = op_cancel(homeless_session, tid, r);
+    if (ret == -ENOENT) {
+      /* oh no! raced, maybe tid moved to another session, restarting */
+      goto start;
+    } else {
+      return ret;
+    }
+  } else {
+    homeless_session->lock.unlock();
+  }
+
+  ldout(cct, 5) << __func__ << ": tid " << tid << " not found in homeless session" << dendl;
+
+  return ret;
+}
+
+/**
+ * Any op which is in progress at the start of this call shall no longer
+ * be in progress when this call ends.  Operations started after the start
+ * of this call may still be in progress when this call ends.
+ *
+ * FIXME: only cancel modify ops, no reason to interfere with reads
+ */
+void Objecter::op_cancel_all(int r)
+{
+  rwlock.get_write();
+
+  std::vector<ceph_tid_t> to_cancel;
+
+  for (map<int, OSDSession *>::iterator siter = osd_sessions.begin(); siter != osd_sessions.end(); ++siter) {
+    OSDSession *s = siter->second;
+    s->lock.get_read();
+    for (map<ceph_tid_t, Op*>::iterator op_i = s->ops.begin(); op_i != s->ops.end(); ++op_i) {
+      to_cancel.push_back(op_i->first);
+    }
+    s->lock.unlock();
+  }
+
+  for (std::vector<ceph_tid_t>::iterator titer = to_cancel.begin(); titer != to_cancel.end(); ++titer) {
+    // Ignoring return code: if an op already completed, that's fine.
+    int r = op_cancel_nolock(*titer, r);
+    assert(r == 0);
+  }
+  rwlock.unlock();
 }
 
 bool Objecter::is_pg_changed(
