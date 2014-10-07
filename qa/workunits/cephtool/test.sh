@@ -427,7 +427,7 @@ function wait_mds_active()
 function fail_all_mds()
 {
   ceph mds cluster_down
-  mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk '{print substr($1, 0, length($1)-1);}' ; done`
+  mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk '{print substr($1, 0, length($1));}' ; done`
   for mds_gid in $mds_gids ; do
       ceph mds fail $mds_gid
   done
@@ -446,7 +446,7 @@ function fail_all_mds()
 
 function remove_all_fs()
 {
-  existing_fs=$(ceph fs ls | grep "name:" | awk '{print substr($2,0,length($2)-1);}')
+  existing_fs=$(ceph fs ls | grep "name:" | awk '{print substr($2,0,length($2));}')
   num_mds=$(ceph mds stat | awk '{print $2;}' | cut -f1 -d'/')
   if [ -n "$existing_fs" ] ; then
       fail_all_mds
@@ -477,7 +477,7 @@ function test_mds_tell()
   wait_mds_active
 
   # Test injectargs by GID
-  old_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk '{print substr($1, 0, length($1)-1);}' ; done`
+  old_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk '{print substr($1, 0, length($1));}' ; done`
   echo Old GIDs: $old_mds_gids
 
   for mds_gid in $old_mds_gids ; do
@@ -489,7 +489,7 @@ function test_mds_tell()
   new_mds_gids=$old_mds_gids
   while [ $new_mds_gids -eq $old_mds_gids ] ; do
       sleep 5
-      new_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk '{print substr($1, 0, length($1)-1);}' ; done`
+      new_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk '{print substr($1, 0, length($1));}' ; done`
   done
   echo New GIDs: $new_mds_gids
 
@@ -498,7 +498,7 @@ function test_mds_tell()
   new_mds_gids=$old_mds_gids
   while [ $new_mds_gids -eq $old_mds_gids ] ; do
       sleep 5
-      new_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk '{print substr($1, 0, length($1)-1);}' ; done`
+      new_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk '{print substr($1, 0, length($1));}' ; done`
   done
   echo New GIDs: $new_mds_gids
 
