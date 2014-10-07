@@ -618,8 +618,8 @@ int RGWGetObj::read_user_manifest_part(rgw_bucket& bucket, RGWObjEnt& ent, RGWAc
   ldout(s->cct, 20) << "user manifest obj=" << ent.key.name << "[" << ent.key.instance << "]" << dendl;
 
   void *handle = NULL;
-  off_t cur_ofs = start_ofs;
-  off_t cur_end = end_ofs;
+  uint64_t cur_ofs = start_ofs;
+  uint64_t cur_end = end_ofs;
   utime_t start_time = s->time;
 
   rgw_obj part(bucket, ent.key);
@@ -627,15 +627,22 @@ int RGWGetObj::read_user_manifest_part(rgw_bucket& bucket, RGWObjEnt& ent, RGWAc
   map<string, bufferlist> attrs;
 
   uint64_t obj_size;
-  void *obj_ctx = store->create_context(s);
+  RGWRados::ObjectCtx obj_ctx(store);
   RGWAccessControlPolicy obj_policy(s->cct);
 
   ldout(s->cct, 20) << "reading obj=" << part << " ofs=" << cur_ofs << " end=" << cur_end << dendl;
 
-  store->set_atomic(obj_ctx, part);
-  store->set_prefetch_data(obj_ctx, part);
-  ret = store->prepare_get_obj(obj_ctx, part, &cur_ofs, &cur_end, &attrs, NULL,
-                                  NULL, NULL, NULL, NULL, NULL, &obj_size, NULL, &handle, &s->err);
+  obj_ctx.set_atomic(part);
+  store->set_prefetch_data(&obj_ctx, part);
+
+  RGWRados::Object op_target(store, obj_ctx, part);
+  RGWRados::Object::Read read_op(&op_target);
+
+  read_op.params.attrs = &attrs;
+  read_op.params.obj_size = &obj_size;
+  read_op.params.perr = &s->err;
+
+  ret = read_op.prepare(&cur_ofs, &cur_end);
   if (ret < 0)
     goto done_err;
 
