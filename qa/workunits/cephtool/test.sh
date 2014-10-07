@@ -424,10 +424,15 @@ function wait_mds_active()
   check_mds_active
 }
 
+function get_mds_gids()
+{
+    ceph mds dump --format=json | python -c "import json; import sys; print ' '.join([m['gid'].__str__() for m in json.load(sys.stdin)['info'].values()])"
+}
+
 function fail_all_mds()
 {
   ceph mds cluster_down
-  mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk 'BEGIN {FS=" "} ; {print substr($1, 0, length($1)-1);}' ; done`
+  mds_gids=$(get_mds_gids)
   for mds_gid in $mds_gids ; do
       ceph mds fail $mds_gid
   done
@@ -446,8 +451,7 @@ function fail_all_mds()
 
 function remove_all_fs()
 {
-  existing_fs=$(ceph fs ls | grep "name:" | awk 'BEGIN {FS=" "} ; {print substr($2,0,length($2)-1);}')
-  num_mds=$(ceph mds stat | awk '{print $2;}' | cut -f1 -d'/')
+  existing_fs=$(ceph fs ls --format=json | python -c "import json; import sys; print ' '.join([fs['name'] for fs in json.load(sys.stdin)])")
   if [ -n "$existing_fs" ] ; then
       fail_all_mds
       echo "Removing existing filesystem '${existing_fs}'..."
@@ -477,7 +481,7 @@ function test_mds_tell()
   wait_mds_active
 
   # Test injectargs by GID
-  old_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk 'BEGIN {FS=" "} ; {print substr($1, 0, length($1)-1);}' ; done`
+  old_mds_gids=$(get_mds_gids)
   echo Old GIDs: $old_mds_gids
 
   for mds_gid in $old_mds_gids ; do
@@ -489,7 +493,7 @@ function test_mds_tell()
   new_mds_gids=$old_mds_gids
   while [ $new_mds_gids -eq $old_mds_gids ] ; do
       sleep 5
-      new_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk 'BEGIN {FS=" "} ; {print substr($1, 0, length($1)-1);}' ; done`
+      new_mds_gids=$(get_mds_gids)
   done
   echo New GIDs: $new_mds_gids
 
@@ -498,7 +502,7 @@ function test_mds_tell()
   new_mds_gids=$old_mds_gids
   while [ $new_mds_gids -eq $old_mds_gids ] ; do
       sleep 5
-      new_mds_gids=`ceph mds dump | grep up: | while read line ; do echo $line | awk 'BEGIN {FS=" "} ; {print substr($1, 0, length($1)-1);}' ; done`
+      new_mds_gids=$(get_mds_gids)
   done
   echo New GIDs: $new_mds_gids
 
