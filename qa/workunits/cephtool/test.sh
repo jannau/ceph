@@ -431,6 +431,17 @@ function fail_all_mds()
   for mds_gid in $mds_gids ; do
       ceph mds fail $mds_gid
   done
+  if check_mds_active ; then
+      echo "An MDS is active when it shouldn't be"
+  fi
+  ceph mds dump
+  sleep 5
+  ceph mds dump
+  if check_mds_active ; then
+      echo "An MDS is active when it REALLY shouldn't be"
+      exit -1
+  fi
+
 }
 
 function remove_all_fs()
